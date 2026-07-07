@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ForeWeather — golf weather &amp; course conditions</title>
+<meta name="description" content="Live golf weather: green speed estimate, course firmness, wind club adjustment, and the best tee times today — powered by real forecast and soil-moisture data.">
+<link rel="canonical" href="https://fore-weather.com/">
+<meta property="og:title" content="ForeWeather — golf weather &amp; course conditions">
+<meta property="og:description" content="How fast are the greens today? Live golf conditions and best tee times for your course.">
+<meta property="og:url" content="https://fore-weather.com/">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#2563eb">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9B%B3%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ForeWeather">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;650;800&display=swap');
+  :root {
+    color-scheme: light dark;
+    --ink: #0f1c16; --muted: #5b6b64;
+    --accent: #059669; --accent2: #0ea5e9; --accent-soft: rgba(5,150,105,.10);
+    --card: rgba(255,255,255,.78); --solid: #ffffff;
+    --tile: rgba(255,255,255,.65); --border: rgba(15,40,30,.08);
+    --input: rgba(255,255,255,.9);
+    --shadow: 0 10px 34px rgba(2,44,34,.08);
+    --bgbase: #eef4f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8f0ec; --muted: #93a69d;
+      --accent: #34d399; --accent2: #38bdf8; --accent-soft: rgba(52,211,153,.12);
+      --card: rgba(22,32,27,.72); --solid: #16201b;
+      --tile: rgba(255,255,255,.05); --border: rgba(255,255,255,.09);
+      --input: rgba(255,255,255,.06);
+      --shadow: 0 10px 34px rgba(0,0,0,.4);
+      --bgbase: #0b120e;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    color: var(--ink);
+    font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 16px; min-height: 100vh;
+    background:
+      radial-gradient(900px 500px at 12% -8%, rgba(16,185,129,.16), transparent 60%),
+      radial-gradient(800px 500px at 95% 8%, rgba(14,165,233,.13), transparent 55%),
+      radial-gradient(700px 600px at 50% 110%, rgba(16,185,129,.10), transparent 60%),
+      var(--bgbase);
+    background-attachment: fixed;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 16px; }
+  .wrap > * { animation: rise .45s cubic-bezier(.2,.7,.3,1) both; }
+  .wrap > *:nth-child(2) { animation-delay: .05s; } .wrap > *:nth-child(3) { animation-delay: .1s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  @media (prefers-reduced-motion: reduce) { .wrap > * { animation: none; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 22px;
+    padding: 18px 20px; box-shadow: var(--shadow);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  }
+  .topbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; position: sticky; top: 12px; z-index: 40; }
+  .topbar h1 {
+    font-size: 19px; font-weight: 800; letter-spacing: -.02em; margin-right: auto; white-space: nowrap;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .searchbox { position: relative; flex: 1 1 240px; max-width: 340px; }
+  .searchbox input {
+    width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 13px;
+    font-size: 14px; font-family: inherit; background: var(--input); color: var(--ink); outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .searchbox input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .results {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50;
+    background: var(--solid); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 16px 40px rgba(0,0,0,.18); overflow: hidden; display: none;
+  }
+  .results button { display: block; width: 100%; text-align: left; padding: 11px 14px; font-size: 13px; font-family: inherit; background: none; border: 0; border-bottom: 1px solid var(--border); cursor: pointer; color: var(--ink); }
+  .results button:last-child { border-bottom: 0; }
+  .results button:hover { background: var(--accent-soft); }
+  .pill {
+    border: 1px solid var(--border); background: var(--input); color: var(--ink);
+    border-radius: 13px; padding: 10px 14px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+    transition: transform .12s, border-color .15s, color .15s;
+  }
+  .pill:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+  .hero {
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center; border: 0;
+    background: linear-gradient(135deg, #065f46, #047857 45%, #0d9488);
+    color: #fff;
+  }
+  .hero .icon { font-size: 68px; line-height: 1; filter: drop-shadow(0 4px 10px rgba(0,0,0,.25)); }
+  .hero .temp { font-size: 56px; font-weight: 800; letter-spacing: -2px; }
+  .hero .desc { font-size: 15px; color: rgba(255,255,255,.78); margin-top: 2px; }
+  .hero .place { font-size: 15px; font-weight: 650; color: rgba(255,255,255,.92); }
+  .hero .meta { margin-left: auto; text-align: right; font-size: 12px; color: rgba(255,255,255,.65); }
+  .card:has(#golfTiles) { border: 1px solid rgba(16,185,129,.35); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 10px; }
+  .tile {
+    background: var(--tile); border: 1px solid var(--border); border-radius: 16px; padding: 12px 14px;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(2,44,34,.10); }
+  .tile .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 650; }
+  .tile .v { font-size: 20px; font-weight: 800; letter-spacing: -.02em; margin-top: 4px; }
+  .tile .s { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 650; margin-bottom: 12px; }
+  .chartbox { position: relative; height: 250px; }
+  .week { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+  .day {
+    text-align: center; background: var(--tile); border: 1px solid var(--border); border-radius: 16px; padding: 12px 6px;
+    transition: transform .15s, border-color .15s;
+  }
+  .day:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .day .dn { font-size: 12px; font-weight: 650; }
+  .day .di { font-size: 28px; margin: 6px 0; }
+  .day .hi { font-weight: 800; font-size: 14px; }
+  .day .lo { color: var(--muted); font-size: 13px; }
+  .day .pr { font-size: 11px; color: var(--accent2); margin-top: 3px; min-height: 13px; }
+  .state { text-align: center; padding: 52px 16px; color: var(--muted); font-size: 14px; }
+  .state .big { font-size: 42px; margin-bottom: 10px; }
+  .hidden { display: none !important; }
+  .credit { text-align: center; font-size: 11px; color: var(--muted); padding-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card topbar">
+    <h1>⛳ ForeWeather</h1>
+    <div class="searchbox">
+      <input id="q" type="text" placeholder="Search city… (e.g. Kempton Park)" autocomplete="off">
+      <div class="results" id="results"></div>
+    </div>
+    <button class="pill" id="geoBtn" title="Use my location">📍</button>
+    <button class="pill" id="unitBtn" title="Toggle units">°C</button>
+    <button class="pill" id="refreshBtn" title="Refresh data">↻</button>
+  </div>
+
+  <div id="empty" class="card state">
+    <div class="big">📍</div>
+    Search for a city, or use the 📍 button to auto-detect your location.<br>
+    Your choice is remembered for next time.
+  </div>
+
+  <div id="loading" class="card state hidden"><div class="big">⏳</div>Fetching live conditions…</div>
+
+  <div id="error" class="card state hidden">
+    <div class="big">⚠️</div><span id="errMsg">Could not load weather data.</span><br><br>
+    <button class="pill" onclick="loadData()">Try again</button>
+  </div>
+
+  <div id="dash" class="hidden" style="display:grid; gap:14px;">
+    <div class="card hero">
+      <div class="icon" id="cIcon">☀️</div>
+      <div>
+        <div class="place" id="cPlace"></div>
+        <div class="temp" id="cTemp"></div>
+        <div class="desc" id="cDesc"></div>
+      </div>
+      <div class="meta"><div id="cUpdated"></div></div>
+    </div>
+    <div class="card">
+      <h2>⛳ Golf conditions</h2>
+      <div class="tiles" id="golfTiles"></div>
+      <div class="credit" style="text-align:left; padding:8px 2px 0;">Green speed &amp; firmness are driven by modeled soil moisture at your coordinates (weather-model land-surface simulation, 0–1&nbsp;cm and 3–9&nbsp;cm layers) — real physics, but still not a stimpmeter: mowing, rolling and turf type matter too.</div>
+    </div>
+    <div class="card"><div class="tiles" id="tiles"></div></div>
+    <div class="card">
+      <h2>Next 48 hours — temperature &amp; precipitation</h2>
+      <div class="chartbox"><canvas id="hourlyChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>8-day outlook</h2>
+      <div class="week" id="week"></div>
+    </div>
+    <div class="credit">Data: Open-Meteo.com · Refreshes on open, on focus, and every 10 min</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const LS_LOC = "wxstation-loc", LS_UNIT = "wxstation-unit";
+let loc = null, unit = "C", chart = null, lastData = null;
+try { loc = JSON.parse(localStorage.getItem(LS_LOC) || "null"); } catch (e) {}
+unit = localStorage.getItem(LS_UNIT) === "F" ? "F" : "C";
+
+async function getJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status + " from weather service");
+  return r.json();
+}
+const geocodeUrl = q => "https://geocoding-api.open-meteo.com/v1/search?count=6&format=json&name=" + encodeURIComponent(q);
+const forecastUrl = (lat, lon) =>
+  "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+  "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,cloud_cover" +
+  "&hourly=temperature_2m,precipitation,precipitation_probability,wind_speed_10m,wind_gusts_10m&forecast_hours=48" +
+  "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset,uv_index_max" +
+  "&forecast_days=8&timezone=auto";
+const historyUrl = (lat, lon) =>
+  "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+  "&daily=precipitation_sum&past_days=3&forecast_days=1&timezone=auto";
+const soilUrl = (lat, lon) =>
+  "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+  "&hourly=soil_moisture_0_to_1cm,soil_moisture_3_to_9cm,et0_fao_evapotranspiration&forecast_hours=24&timezone=auto";
+
+/* WMO weather codes */
+const WMO = {
+  0:["☀️","Clear sky"],1:["🌤️","Mainly clear"],2:["⛅","Partly cloudy"],3:["☁️","Overcast"],
+  45:["🌫️","Fog"],48:["🌫️","Rime fog"],
+  51:["🌦️","Light drizzle"],53:["🌦️","Drizzle"],55:["🌧️","Heavy drizzle"],
+  56:["🌧️","Freezing drizzle"],57:["🌧️","Freezing drizzle"],
+  61:["🌧️","Light rain"],63:["🌧️","Rain"],65:["🌧️","Heavy rain"],
+  66:["🌧️","Freezing rain"],67:["🌧️","Freezing rain"],
+  71:["🌨️","Light snow"],73:["🌨️","Snow"],75:["❄️","Heavy snow"],77:["❄️","Snow grains"],
+  80:["🌦️","Light showers"],81:["🌧️","Showers"],82:["🌧️","Heavy showers"],
+  85:["🌨️","Snow showers"],86:["❄️","Snow showers"],
+  95:["⛈️","Thunderstorm"],96:["⛈️","Storm with hail"],99:["⛈️","Storm with hail"]
+};
+function wmo(code, isDay) {
+  const s = WMO[code] || ["🌡️", "Code " + code];
+  if (isDay === 0 && (code === 0 || code === 1)) return ["🌙", code === 0 ? "Clear night" : "Mostly clear night"];
+  return s;
+}
+
+const cval = c => unit === "F" ? c * 9 / 5 + 32 : c;
+const deg = () => "°" + unit;
+const wind = kmh => unit === "F" ? (kmh * 0.621371).toFixed(0) + " mph" : kmh.toFixed(0) + " km/h";
+const compass = d => ["N","NE","E","SE","S","SW","W","NW"][Math.round(((d % 360) + 360) % 360 / 45) % 8];
+const $ = id => document.getElementById(id);
+function show(which) { ["empty","loading","error","dash"].forEach(id => $(id).classList.toggle("hidden", id !== which)); }
+const tile = (k, v, s) => '<div class="tile"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + (s || "") + "</div></div>";
+const hm = iso => iso.slice(11, 16);
+
+function render(data) {
+  lastData = data;
+  const c = data.current;
+  const [icon, desc] = wmo(c.weather_code, c.is_day);
+  $("cIcon").textContent = icon;
+  $("cPlace").textContent = loc.name + (loc.country ? ", " + loc.country : "");
+  $("cTemp").textContent = Math.round(cval(c.temperature_2m)) + deg();
+  $("cDesc").textContent = desc;
+  $("cUpdated").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const dl = data.daily;
+  $("tiles").innerHTML =
+    tile("Feels like", Math.round(cval(c.apparent_temperature)) + deg()) +
+    tile("Humidity", c.relative_humidity_2m + "%") +
+    tile("Wind", wind(c.wind_speed_10m), "from " + compass(c.wind_direction_10m)) +
+    tile("Pressure", Math.round(c.surface_pressure), "hPa") +
+    tile("Cloud cover", c.cloud_cover + "%") +
+    tile("UV max today", dl.uv_index_max[0] != null ? dl.uv_index_max[0].toFixed(1) : "—") +
+    tile("Sunrise", hm(dl.sunrise[0])) +
+    tile("Sunset", hm(dl.sunset[0]));
+
+  renderChart(data.hourly);
+  renderWeek(dl);
+  show("dash");
+}
+
+function renderChart(h) {
+  const labels = h.time.map(t => t.slice(11, 13) + "ʰ");
+  const temps = h.temperature_2m.map(v => +cval(v).toFixed(1));
+  const rain = h.precipitation;
+  if (chart) chart.destroy();
+  const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const txt = dark ? "#93a69d" : "#5b6b64";
+  const grid = dark ? "rgba(255,255,255,.07)" : "rgba(15,40,30,.07)";
+  const line = dark ? "#34d399" : "#059669";
+  Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+  chart = new Chart($("hourlyChart"), {
+    data: { labels, datasets: [
+      { type: "line", label: "Temp " + deg(), data: temps, borderColor: line, backgroundColor: dark ? "rgba(52,211,153,.10)" : "rgba(5,150,105,.08)", fill: true, tension: .35, pointRadius: 0, borderWidth: 2.5, yAxisID: "y" },
+      { type: "bar", label: "Precip mm", data: rain, backgroundColor: "rgba(56,189,248,.55)", borderRadius: 3, yAxisID: "y1" }
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 }, color: txt } } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 12, font: { size: 10 }, color: txt }, grid: { display: false } },
+        y: { position: "left", title: { display: true, text: deg(), font: { size: 10 }, color: txt }, ticks: { color: txt }, grid: { color: grid } },
+        y1: { position: "right", beginAtZero: true, suggestedMax: 4, title: { display: true, text: "mm", font: { size: 10 }, color: txt }, ticks: { color: txt }, grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+}
+
+function renderWeek(dl) {
+  let html = "";
+  for (let i = 0; i < dl.time.length; i++) {
+    const [icon] = wmo(dl.weather_code[i], 1);
+    const name = i === 0 ? "Today" : new Date(dl.time[i] + "T12:00").toLocaleDateString([], { weekday: "short" });
+    const pr = dl.precipitation_sum[i];
+    const pp = dl.precipitation_probability_max[i];
+    html += '<div class="day"><div class="dn">' + name + '</div><div class="di">' + icon + '</div>' +
+      '<div class="hi">' + Math.round(cval(dl.temperature_2m_max[i])) + '°</div>' +
+      '<div class="lo">' + Math.round(cval(dl.temperature_2m_min[i])) + '°</div>' +
+      '<div class="pr">' + (pr >= 0.1 ? "💧 " + pr.toFixed(1) + " mm" : (pp > 30 ? "💧 " + pp + "%" : "")) + "</div></div>";
+  }
+  $("week").innerHTML = html;
+}
+
+/* ---------- golf conditions ---------- */
+function fmtTime(iso) { return iso.slice(11, 16); }
+
+/* soil-moisture models: m³ water per m³ soil, from the weather model's land-surface simulation */
+function greenSpeedSoil(sm, hum) {
+  let stimp;
+  if (sm < 0.12) stimp = 11.0;
+  else if (sm < 0.20) stimp = 10.4;
+  else if (sm < 0.26) stimp = 9.8;
+  else if (sm < 0.32) stimp = 9.0;
+  else if (sm < 0.38) stimp = 8.3;
+  else stimp = 7.6;
+  if (hum > 85) stimp -= 0.3;
+  const label = stimp >= 10.5 ? "Fast" : stimp >= 9.5 ? "Medium-fast" : stimp >= 8.5 ? "Medium" : "Slow";
+  return { stimp: stimp.toFixed(1), label };
+}
+function firmnessSoil(sm) {
+  if (sm < 0.15) return "Firm & running";
+  if (sm < 0.24) return "Medium";
+  if (sm < 0.32) return "Soft & receptive";
+  return "Very soft";
+}
+
+function greenSpeed(rain24, rain72, humidity, windNow) {
+  let stimp = 10;
+  if (rain24 > 8) stimp -= 2; else if (rain24 > 3) stimp -= 1.5; else if (rain24 > 0.5) stimp -= 0.5;
+  if (rain72 > 25) stimp -= 1; else if (rain72 > 10) stimp -= 0.5;
+  if (humidity > 85) stimp -= 0.5;
+  if (rain72 < 1 && windNow > 15) stimp += 0.5; // dry + drying wind
+  stimp = Math.max(7.5, Math.min(11.5, stimp));
+  const label = stimp >= 10.5 ? "Fast" : stimp >= 9.5 ? "Medium-fast" : stimp >= 8.5 ? "Medium" : "Slow";
+  return { stimp: stimp.toFixed(1), label };
+}
+
+function firmness(rain72) {
+  if (rain72 < 2) return ["Firm & running", "expect roll-out"];
+  if (rain72 < 10) return ["Medium", "normal roll"];
+  if (rain72 < 25) return ["Soft & receptive", "balls check up, little roll"];
+  return ["Very soft", "possible cart-path only"];
+}
+
+function windPlay(kmh, gusts) {
+  const g = gusts > kmh + 15 ? " · gusty!" : "";
+  if (kmh < 10) return ["Calm", "no adjustment" + g];
+  if (kmh < 20) return ["Breezy", "½–1 club into it" + g];
+  if (kmh < 30) return ["Windy", "1–2 clubs, flight it down" + g];
+  return ["Very windy", "2+ clubs — keep it low" + g];
+}
+
+function bestTee(h, dayISO, sunriseISO, sunsetISO, notBefore) {
+  const sr = parseInt(sunriseISO.slice(11, 13), 10);
+  const ss = parseInt(sunsetISO.slice(11, 13), 10);
+  const idx = [];
+  for (let i = 0; i < h.time.length; i++) {
+    const t = h.time[i];
+    if (!t.startsWith(dayISO)) continue;
+    const hr = parseInt(t.slice(11, 13), 10);
+    if (hr < sr || hr > ss - 1) continue;
+    if (notBefore && t < notBefore) continue;
+    idx.push(i);
+  }
+  if (idx.length < 2) return null;
+  const cost = i => (h.precipitation_probability[i] || 0) * 0.8 + (h.precipitation[i] || 0) * 15 +
+    Math.max(0, (h.wind_speed_10m[i] || 0) - 12) * 2.5 + Math.abs(h.temperature_2m[i] - 21) * 1.2;
+  const win = Math.min(4, idx.length);
+  let best = 0, bestScore = Infinity;
+  for (let s = 0; s + win <= idx.length; s++) {
+    let sc = 0;
+    for (let k = s; k < s + win; k++) sc += cost(idx[k]);
+    if (sc < bestScore) { bestScore = sc; best = s; }
+  }
+  const w = idx.slice(best, best + win);
+  const maxPp = Math.max(...w.map(i => h.precipitation_probability[i] || 0));
+  const avgWind = w.reduce((a, i) => a + (h.wind_speed_10m[i] || 0), 0) / w.length;
+  return { start: fmtTime(h.time[w[0]]), rain: maxPp, wind: avgWind };
+}
+
+function renderGolf(data, hist, soil) {
+  const c = data.current, dl = data.daily, h = data.hourly;
+  const ps = hist.daily.precipitation_sum;
+  const rain24 = ps[2] || 0;                       // yesterday
+  const rain72 = (ps[0] || 0) + (ps[1] || 0) + (ps[2] || 0);
+  const sm0 = soil && soil.hourly && soil.hourly.soil_moisture_0_to_1cm ? soil.hourly.soil_moisture_0_to_1cm[0] : null;
+  let gs, gsNote, firm, firmNote;
+  if (sm0 != null) {
+    const sm9arr = soil.hourly.soil_moisture_3_to_9cm;
+    const sm9 = sm9arr && sm9arr[0] != null ? sm9arr[0] : sm0;
+    const et24 = (soil.hourly.et0_fao_evapotranspiration || []).reduce((a, b) => a + (b || 0), 0);
+    const rainNext24 = h.precipitation.slice(0, 24).reduce((a, b) => a + (b || 0), 0);
+    const trend = et24 - rainNext24 > 1 ? "drying out" : rainNext24 - et24 > 1 ? "getting wetter" : "holding steady";
+    gs = greenSpeedSoil(sm0, c.relative_humidity_2m);
+    gsNote = gs.label + " · topsoil " + sm0.toFixed(2) + " m³/m³";
+    firm = firmnessSoil(sm9);
+    firmNote = "root zone " + sm9.toFixed(2) + " m³/m³ · " + trend;
+  } else {
+    gs = greenSpeed(rain24, rain72, c.relative_humidity_2m, c.wind_speed_10m);
+    gsNote = gs.label + " · rain-based estimate";
+    const f = firmness(rain72);
+    firm = f[0];
+    firmNote = "rain last 72h: " + rain72.toFixed(1) + " mm";
+  }
+  const [wp, wpNote] = windPlay(c.wind_speed_10m, c.wind_gusts_10m || 0);
+
+  const today = dl.time[0], tomorrow = dl.time[1];
+  const nowIso = h.time[0];
+  const t1 = bestTee(h, today, dl.sunrise[0], dl.sunset[0], nowIso);
+  const t2 = bestTee(h, tomorrow, dl.sunrise[1], dl.sunset[1], null);
+  const teeStr = t => t ? t.start : "—";
+  const teeNote = t => t ? Math.round(t.rain) + "% rain · " + Math.round(t.wind) + " km/h" : "no daylight window left";
+
+  const ssM = dl.sunset[0].slice(11, 16).split(":");
+  const lastOff = new Date(2000, 0, 1, +ssM[0], +ssM[1] - 260); // 4h20 round
+  const lastOffStr = String(lastOff.getHours()).padStart(2, "0") + ":" + String(lastOff.getMinutes()).padStart(2, "0");
+
+  $("golfTiles").innerHTML =
+    tile("Green speed (est)", "~" + gs.stimp, gsNote) +
+    tile("Course firmness", firm, firmNote) +
+    tile("Wind play", wp, wpNote) +
+    tile("Best tee time today", teeStr(t1), teeNote(t1)) +
+    tile("Best tee tomorrow", teeStr(t2), teeNote(t2)) +
+    tile("Last tee-off (18)", lastOffStr, "sunset " + fmtTime(dl.sunset[0]));
+}
+
+async function loadData() {
+  if (!loc) { show("empty"); return; }
+  show("loading");
+  try {
+    const [data, hist, soil] = await Promise.all([
+      getJson(forecastUrl(loc.lat, loc.lon)),
+      getJson(historyUrl(loc.lat, loc.lon)),
+      getJson(soilUrl(loc.lat, loc.lon)).catch(() => null) // optional — falls back to rain-based estimate
+    ]);
+    if (!data.current) throw new Error("Unexpected data format");
+    render(data);
+    renderGolf(data, hist, soil);
+  } catch (err) {
+    $("errMsg").textContent = (err && err.message) || "Could not load weather data.";
+    show("error");
+  }
+}
+
+function setLoc(l) {
+  loc = l;
+  localStorage.setItem(LS_LOC, JSON.stringify(loc));
+  loadData();
+}
+
+async function doSearch(q) {
+  const box = $("results");
+  box.style.display = "block";
+  box.innerHTML = "<button disabled>Searching…</button>";
+  try {
+    const g = await getJson(geocodeUrl(q));
+    const res = g.results || [];
+    if (!res.length) { box.innerHTML = "<button disabled>No matches found</button>"; return; }
+    box.innerHTML = "";
+    res.forEach(r => {
+      const b = document.createElement("button");
+      const sub = [r.admin1, r.country].filter(Boolean).join(", ");
+      b.textContent = r.name + (sub ? " — " + sub : "");
+      b.onclick = () => {
+        box.style.display = "none";
+        $("q").value = "";
+        setLoc({ name: r.name, country: r.country_code || r.country, lat: +r.latitude.toFixed(4), lon: +r.longitude.toFixed(4) });
+      };
+      box.appendChild(b);
+    });
+  } catch (err) {
+    box.innerHTML = "";
+    const b = document.createElement("button");
+    b.disabled = true;
+    b.textContent = "Search failed: " + ((err && err.message) || err);
+    box.appendChild(b);
+  }
+}
+
+$("geoBtn").addEventListener("click", () => {
+  if (!navigator.geolocation) { alert("Geolocation not supported in this browser."); return; }
+  show("loading");
+  navigator.geolocation.getCurrentPosition(
+    p => setLoc({ name: "My location", country: "", lat: +p.coords.latitude.toFixed(4), lon: +p.coords.longitude.toFixed(4) }),
+    err => { $("errMsg").textContent = "Location access denied — use the search box instead."; show(loc ? "dash" : "error"); },
+    { timeout: 10000 }
+  );
+});
+
+let searchTimer = null;
+$("q").addEventListener("input", e => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (q.length < 2) { $("results").style.display = "none"; return; }
+  searchTimer = setTimeout(() => doSearch(q), 450);
+});
+$("q").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.value.trim().length >= 2) doSearch(e.target.value.trim()); });
+document.addEventListener("click", e => { if (!e.target.closest(".searchbox")) $("results").style.display = "none"; });
+
+$("unitBtn").addEventListener("click", () => {
+  unit = unit === "C" ? "F" : "C";
+  localStorage.setItem(LS_UNIT, unit);
+  $("unitBtn").textContent = "°" + unit;
+  if (lastData) render(lastData);
+});
+$("refreshBtn").addEventListener("click", loadData);
+setInterval(() => { if (loc) loadData(); }, 10 * 60 * 1000);
+window.addEventListener("focus", () => { if (loc) loadData(); });
+
+$("unitBtn").textContent = "°" + unit;
+loadData();
+
+/* PWA: register service worker when hosted over HTTPS */
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
