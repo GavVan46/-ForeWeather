@@ -201,7 +201,10 @@
       <div id="repList"></div>
       <button class="pill" id="rateBtn" style="margin-top:10px;">⭐ Rate today's conditions</button>
       <form id="repForm" class="hidden" style="margin-top:12px; display:grid; gap:10px; max-width:420px;">
-        <input id="repCourse" maxlength="60" placeholder="Course you played (e.g. Kempton Park GC)" required>
+        <div id="courseWrap" style="position:relative;">
+          <input id="repCourse" maxlength="60" placeholder="Course you played — start typing…" required autocomplete="off" style="width:100%;">
+          <div class="results" id="courseDrop"></div>
+        </div>
         <label class="rating">Greens <output id="gOut">7</output>/10
           <input type="range" id="gRange" min="1" max="10" value="7"></label>
         <label class="rating">Fairways <output id="fOut">7</output>/10
@@ -542,8 +545,55 @@ async function loadReports() {
   }
 }
 
+/* course autocomplete — nearby courses from OpenStreetMap via our API */
+let courseList = [], selCourse = null, coursesLoadedFor = null;
+
+async function loadCourses() {
+  if (!loc) return;
+  const key = loc.lat + "," + loc.lon;
+  if (coursesLoadedFor === key && courseList.length) return;
+  try {
+    const r = await fetch("/api/courses?lat=" + loc.lat + "&lon=" + loc.lon);
+    if (!r.ok) return;
+    const d = await r.json();
+    courseList = d.courses || [];
+    coursesLoadedFor = key;
+  } catch (e) { /* offline — free typing still works */ }
+}
+
+function showCourseDrop(q) {
+  const drop = $("courseDrop");
+  const ql = q.toLowerCase();
+  const hits = courseList.filter(c => c.n.toLowerCase().includes(ql)).slice(0, 8);
+  if (!hits.length) { drop.style.display = "none"; return; }
+  drop.innerHTML = "";
+  hits.forEach(c => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = "⛳ " + c.n;
+    b.onclick = () => {
+      $("repCourse").value = c.n;
+      selCourse = c;
+      drop.style.display = "none";
+    };
+    drop.appendChild(b);
+  });
+  drop.style.display = "block";
+}
+
+$("repCourse").addEventListener("input", e => {
+  selCourse = null;
+  const q = e.target.value.trim();
+  if (q.length < 2) { $("courseDrop").style.display = "none"; return; }
+  showCourseDrop(q);
+});
+document.addEventListener("click", e => {
+  if (!e.target.closest("#courseWrap")) $("courseDrop").style.display = "none";
+});
+
 $("rateBtn").addEventListener("click", () => {
   $("repForm").classList.toggle("hidden");
+  loadCourses();
   const saved = localStorage.getItem("wxstation-course");
   if (saved && !$("repCourse").value) $("repCourse").value = saved;
 });
@@ -554,14 +604,20 @@ $("repForm").addEventListener("submit", async e => {
   e.preventDefault();
   const course = $("repCourse").value.trim();
   if (course.length < 2 || !loc) return;
+  if (!selCourse) {
+    const m = courseList.find(c => c.n.toLowerCase() === course.toLowerCase());
+    if (m) selCourse = m;
+  }
   try {
+    const body = {
+      lat: loc.lat, lon: loc.lon, course,
+      greens: +$("gRange").value, fairways: +$("fRange").value, overall: +$("oRange").value
+    };
+    if (selCourse) { body.clat = selCourse.la; body.clon = selCourse.lo; body.course = selCourse.n; }
     const r = await fetch("/api/reports", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        lat: loc.lat, lon: loc.lon, course,
-        greens: +$("gRange").value, fairways: +$("fRange").value, overall: +$("oRange").value
-      })
+      body: JSON.stringify(body)
     });
     const d = await r.json();
     if (!r.ok) { toast(d.error || "Couldn't submit — try again."); return; }

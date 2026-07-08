@@ -6,6 +6,50 @@ function sanitizeCourse(s) {
   return String(s || "").replace(/[^\w\s\-'&.,()]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
+async function handleCourses(request, env) {
+  const url = new URL(request.url);
+  const json = (obj, status = 200) =>
+    new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+  const lat = parseFloat(url.searchParams.get("lat"));
+  const lon = parseFloat(url.searchParams.get("lon"));
+  if (!isFinite(lat) || !isFinite(lon)) return json({ error: "lat/lon required" }, 400);
+  const cla = Math.round(lat), clo = Math.round(lon);
+  const key = "courses:" + cla + "," + clo;
+  const cached = await env.REPORTS.get(key, "json");
+  if (cached) return json({ courses: cached });
+
+  let courses = [];
+  try {
+    const q = '[out:json][timeout:25];nwr["leisure"="golf_course"]["name"](around:80000,' + cla + "," + clo + ");out center tags 400;";
+    const r = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "user-agent": "ForeWeather/1.0 (https://fore-weather.com)"
+      },
+      body: "data=" + encodeURIComponent(q)
+    });
+    if (r.ok) {
+      const d = await r.json();
+      const seen = new Set();
+      for (const el of d.elements || []) {
+        const name = el.tags && el.tags.name;
+        const la = el.lat != null ? el.lat : el.center && el.center.lat;
+        const lo = el.lon != null ? el.lon : el.center && el.center.lon;
+        if (!name || la == null || lo == null) continue;
+        const clean = sanitizeCourse(name);
+        if (clean.length < 2 || seen.has(clean.toLowerCase())) continue;
+        seen.add(clean.toLowerCase());
+        courses.push({ n: clean, la: +la.toFixed(4), lo: +lo.toFixed(4) });
+      }
+      courses.sort((a, b) => a.n.localeCompare(b.n));
+      courses = courses.slice(0, 400);
+      await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 30 * 86400 });
+    }
+  } catch (e) { /* Overpass unavailable — return empty, don't cache */ }
+  return json({ courses });
+}
+
 async function handleReports(request, env) {
   const url = new URL(request.url);
   const json = (obj, status = 200) =>
@@ -46,7 +90,13 @@ async function handleReports(request, env) {
       return json({ error: "Easy tiger — one report every 5 minutes." }, 429);
     await env.REPORTS.put(rlKey, "1", { expirationTtl: 300 });
 
-    const key = "cell:" + CELL(lat) + "," + CELL(lon);
+    // pin to the course's own location when provided (from the autocomplete picker)
+    let plat = lat, plon = lon;
+    const clat = parseFloat(b.clat), clon = parseFloat(b.clon);
+    if (isFinite(clat) && isFinite(clon) && Math.abs(clat) <= 90 && Math.abs(clon) <= 180) {
+      plat = clat; plon = clon;
+    }
+    const key = "cell:" + CELL(plat) + "," + CELL(plon);
     const list = (await env.REPORTS.get(key, "json")) || [];
     list.unshift({ t: Date.now(), course, g, f, o });
     const cutoff = Date.now() - 7 * 864e5;
@@ -61,6 +111,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/reports") return handleReports(request, env);
+    if (url.pathname === "/api/courses") return handleCourses(request, env);
     return env.ASSETS.fetch(request);
   }
 };
