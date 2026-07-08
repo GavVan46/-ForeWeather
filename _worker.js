@@ -6,6 +6,22 @@ function sanitizeCourse(s) {
   return String(s || "").replace(/[^\w\s\-'&.,()]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
+/* Courses missing from OpenStreetMap — curated by hand. Add more as players report gaps. */
+const CUSTOM_COURSES = [
+  { n: "Huddle Park Golf Club", la: -26.163, lo: 28.118 }
+];
+
+function withCustom(courses, cla, clo) {
+  const out = courses.slice();
+  for (const c of CUSTOM_COURSES) {
+    const dLat = (c.la - cla) * 110.6;
+    const dLon = (c.lo - clo) * 111.3 * Math.cos(cla * Math.PI / 180);
+    if (Math.sqrt(dLat * dLat + dLon * dLon) > 150) continue;
+    if (!out.some(x => x.n.toLowerCase() === c.n.toLowerCase())) out.push(c);
+  }
+  return out.sort((a, b) => a.n.localeCompare(b.n));
+}
+
 async function handleCourses(request, env) {
   const url = new URL(request.url);
   const json = (obj, status = 200) =>
@@ -16,7 +32,7 @@ async function handleCourses(request, env) {
   const cla = Math.round(lat), clo = Math.round(lon);
   const key = "courses2:" + cla + "," + clo; // v2: 150 km radius
   const cached = await env.REPORTS.get(key, "json");
-  if (cached && cached.length) return json({ courses: cached }); // ignore stale empty caches
+  if (cached && cached.length) return json({ courses: withCustom(cached, cla, clo) }); // ignore stale empty caches
 
   let courses = [];
   const q = '[out:json][timeout:25];nwr["leisure"="golf_course"]["name"](around:150000,' + cla + "," + clo + ");out center tags 400;";
@@ -57,7 +73,7 @@ async function handleCourses(request, env) {
       break; // this mirror answered — done
     } catch (e) { debug.push(mirror.split("/")[2] + ": " + ((e && e.message) || "error")); }
   }
-  const out = { courses };
+  const out = { courses: withCustom(courses, cla, clo) };
   if (url.searchParams.get("debug")) out.debug = debug;
   return json(out);
 }
@@ -68,9 +84,10 @@ async function handleFindCourse(request, env) {
     new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
   const q = sanitizeCourse(url.searchParams.get("q"));
   if (q.length < 3) return json({ courses: [] });
+  const customHits = CUSTOM_COURSES.filter(c => c.n.toLowerCase().includes(q.toLowerCase()));
   const key = "cq2:" + q.toLowerCase();
   const cached = await env.REPORTS.get(key, "json");
-  if (cached) return json({ courses: cached });
+  if (cached) return json({ courses: customHits.concat(cached.filter(c => !customHits.some(h => h.n === c.n))) });
 
   const courses = [];
   try {
@@ -94,7 +111,7 @@ async function handleFindCourse(request, env) {
       if (courses.length) await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 7 * 86400 });
     }
   } catch (e) { /* Nominatim unavailable */ }
-  return json({ courses });
+  return json({ courses: customHits.concat(courses.filter(c => !customHits.some(h => h.n === c.n))) });
 }
 
 async function handleReports(request, env) {
