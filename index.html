@@ -510,6 +510,14 @@ function ago(t) {
   return Math.round(h / 24) + "d ago";
 }
 
+/* "Huddle Park GC" ≡ "Huddle Park Golf Club" — compare core names, ignoring common suffixes */
+function courseKey(s) {
+  return String(s || "").toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\b(golf|course|club|country|estate|links|gc|cc|the)\b/g, "")
+    .replace(/\s+/g, " ").trim();
+}
+
 function repRow(r) {
   const row = document.createElement("div");
   row.className = "rep";
@@ -528,11 +536,11 @@ function repRow(r) {
 function renderReports(reports) {
   const box = $("repList");
   box.innerHTML = "";
-  const courseName = (loc && loc.course ? loc.course : "").toLowerCase();
+  const courseName = loc && loc.course ? courseKey(loc.course) : "";
   let mine = reports, others = [];
   if (courseName) {
-    mine = reports.filter(r => r.course.toLowerCase() === courseName);
-    others = reports.filter(r => r.course.toLowerCase() !== courseName);
+    mine = reports.filter(r => courseKey(r.course) === courseName);
+    others = reports.filter(r => courseKey(r.course) !== courseName);
   }
   if (!mine.length) {
     const d = document.createElement("div");
@@ -644,7 +652,8 @@ $("repForm").addEventListener("submit", async e => {
   const course = $("repCourse").value.trim();
   if (course.length < 2 || !loc) return;
   if (!selCourse) {
-    const m = courseList.find(c => c.n.toLowerCase() === course.toLowerCase());
+    // typed by hand? still pin it if the core name matches a known course ("Huddle Park GC" → Huddle Park Golf Club)
+    const m = courseList.find(c => courseKey(c.n) === courseKey(course));
     if (m) selCourse = m;
   }
   try {
