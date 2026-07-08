@@ -561,11 +561,9 @@ async function loadCourses() {
   } catch (e) { /* offline — free typing still works */ }
 }
 
-function showCourseDrop(q) {
+function renderDrop(hits) {
   const drop = $("courseDrop");
-  const ql = q.toLowerCase();
-  const hits = courseList.filter(c => c.n.toLowerCase().includes(ql)).slice(0, 8);
-  if (!hits.length) { drop.style.display = "none"; return; }
+  if (!hits.length) { drop.style.display = "none"; return 0; }
   drop.innerHTML = "";
   hits.forEach(c => {
     const b = document.createElement("button");
@@ -579,13 +577,34 @@ function showCourseDrop(q) {
     drop.appendChild(b);
   });
   drop.style.display = "block";
+  return hits.length;
 }
 
+function showCourseDrop(q) {
+  const ql = q.toLowerCase();
+  return renderDrop(courseList.filter(c => c.n.toLowerCase().includes(ql)).slice(0, 8));
+}
+
+let findTimer = null, findToken = 0;
 $("repCourse").addEventListener("input", e => {
   selCourse = null;
+  clearTimeout(findTimer);
   const q = e.target.value.trim();
   if (q.length < 2) { $("courseDrop").style.display = "none"; return; }
-  showCourseDrop(q);
+  const localHits = showCourseDrop(q);
+  if (!localHits && q.length >= 3) {
+    // no nearby match — search worldwide by name
+    findTimer = setTimeout(async () => {
+      const tok = ++findToken;
+      try {
+        const r = await fetch("/api/findcourse?q=" + encodeURIComponent(q));
+        if (!r.ok) return;
+        const d = await r.json();
+        if (tok !== findToken || $("repCourse").value.trim() !== q) return;
+        renderDrop(d.courses || []);
+      } catch (err) { /* offline — free typing still works */ }
+    }, 500);
+  }
 });
 document.addEventListener("click", e => {
   if (!e.target.closest("#courseWrap")) $("courseDrop").style.display = "none";

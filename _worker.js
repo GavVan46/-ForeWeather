@@ -20,7 +20,7 @@ async function handleCourses(request, env) {
 
   let courses = [];
   try {
-    const q = '[out:json][timeout:25];nwr["leisure"="golf_course"]["name"](around:80000,' + cla + "," + clo + ");out center tags 400;";
+    const q = '[out:json][timeout:25];nwr["leisure"="golf_course"]["name"](around:150000,' + cla + "," + clo + ");out center tags 400;";
     const r = await fetch("https://overpass-api.de/api/interpreter", {
       method: "POST",
       headers: {
@@ -47,6 +47,40 @@ async function handleCourses(request, env) {
       await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 30 * 86400 });
     }
   } catch (e) { /* Overpass unavailable — return empty, don't cache */ }
+  return json({ courses });
+}
+
+async function handleFindCourse(request, env) {
+  const url = new URL(request.url);
+  const json = (obj, status = 200) =>
+    new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+  const q = sanitizeCourse(url.searchParams.get("q"));
+  if (q.length < 3) return json({ courses: [] });
+  const key = "cq:" + q.toLowerCase();
+  const cached = await env.REPORTS.get(key, "json");
+  if (cached) return json({ courses: cached });
+
+  const courses = [];
+  try {
+    const r = await fetch(
+      "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=" + encodeURIComponent(q + " golf"),
+      { headers: { "user-agent": "ForeWeather/1.0 (https://fore-weather.com)", "accept-language": "en" } }
+    );
+    if (r.ok) {
+      const d = await r.json();
+      for (const it of d) {
+        const la = parseFloat(it.lat), lo = parseFloat(it.lon);
+        if (!isFinite(la) || !isFinite(lo)) continue;
+        const parts = String(it.display_name || "").split(",");
+        let n = sanitizeCourse(parts[0]);
+        if (n.length < 2) continue;
+        const country = parts.length > 1 ? sanitizeCourse(parts[parts.length - 1]) : "";
+        if (country) n = (n + " (" + country + ")").slice(0, 60);
+        courses.push({ n, la: +la.toFixed(4), lo: +lo.toFixed(4) });
+      }
+      await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 7 * 86400 });
+    }
+  } catch (e) { /* Nominatim unavailable */ }
   return json({ courses });
 }
 
@@ -112,6 +146,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/api/reports") return handleReports(request, env);
     if (url.pathname === "/api/courses") return handleCourses(request, env);
+    if (url.pathname === "/api/findcourse") return handleFindCourse(request, env);
     return env.ASSETS.fetch(request);
   }
 };
