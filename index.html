@@ -580,20 +580,18 @@ function renderDrop(hits) {
   return hits.length;
 }
 
-function showCourseDrop(q) {
-  const ql = q.toLowerCase();
-  return renderDrop(courseList.filter(c => c.n.toLowerCase().includes(ql)).slice(0, 8));
-}
-
 let findTimer = null, findToken = 0;
 $("repCourse").addEventListener("input", e => {
   selCourse = null;
   clearTimeout(findTimer);
   const q = e.target.value.trim();
   if (q.length < 2) { $("courseDrop").style.display = "none"; return; }
-  const localHits = showCourseDrop(q);
-  if (!localHits && q.length >= 3) {
-    // no nearby match — search worldwide by name
+  const ql = q.toLowerCase();
+  // nearby courses match instantly…
+  const localHits = courseList.filter(c => c.n.toLowerCase().includes(ql)).slice(0, 8);
+  renderDrop(localHits);
+  // …and every search also runs worldwide, merged in as results arrive
+  if (q.length >= 3) {
     findTimer = setTimeout(async () => {
       const tok = ++findToken;
       try {
@@ -601,9 +599,10 @@ $("repCourse").addEventListener("input", e => {
         if (!r.ok) return;
         const d = await r.json();
         if (tok !== findToken || $("repCourse").value.trim() !== q) return;
-        renderDrop(d.courses || []);
+        const remote = (d.courses || []).filter(rc => !localHits.some(lc => lc.n.toLowerCase() === rc.n.toLowerCase()));
+        renderDrop(localHits.concat(remote).slice(0, 10));
       } catch (err) { /* offline — free typing still works */ }
-    }, 500);
+    }, 450);
   }
 });
 document.addEventListener("click", e => {
