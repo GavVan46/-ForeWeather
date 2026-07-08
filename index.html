@@ -134,6 +134,22 @@
     opacity: 0; transition: transform .25s, opacity .25s; z-index: 100; pointer-events: none;
   }
   #toast.on { transform: translateX(-50%); opacity: 1; }
+  #repForm input[type="text"], #repCourse {
+    padding: 10px 14px; border: 1px solid var(--border); border-radius: 13px;
+    font-size: 14px; font-family: inherit; background: var(--input); color: var(--ink); outline: none;
+  }
+  #repCourse:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .rating { font-size: 13px; font-weight: 650; display: grid; gap: 4px; }
+  .rating output { display: inline; font-weight: 800; color: var(--accent); }
+  .rating input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .rep {
+    display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline;
+    padding: 9px 2px; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .rep:last-child { border-bottom: 0; }
+  .rep b { font-size: 13.5px; }
+  .rep .scores { color: var(--muted); }
+  .rep .when { margin-left: auto; font-size: 11.5px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -180,6 +196,21 @@
       <div class="credit" style="text-align:left; padding:8px 2px 0;">Green speed &amp; firmness are driven by modeled soil moisture at your coordinates (weather-model land-surface simulation, 0–1&nbsp;cm and 3–9&nbsp;cm layers) — real physics, but still not a stimpmeter: mowing, rolling and turf type matter too.</div>
     </div>
     <div class="card"><div class="tiles" id="tiles"></div></div>
+    <div class="card hidden" id="repCard">
+      <h2>🎯 Player reports nearby</h2>
+      <div id="repList"></div>
+      <button class="pill" id="rateBtn" style="margin-top:10px;">⭐ Rate today's conditions</button>
+      <form id="repForm" class="hidden" style="margin-top:12px; display:grid; gap:10px; max-width:420px;">
+        <input id="repCourse" maxlength="60" placeholder="Course you played (e.g. Kempton Park GC)" required>
+        <label class="rating">Greens <output id="gOut">7</output>/10
+          <input type="range" id="gRange" min="1" max="10" value="7"></label>
+        <label class="rating">Fairways <output id="fOut">7</output>/10
+          <input type="range" id="fRange" min="1" max="10" value="7"></label>
+        <label class="rating">Overall <output id="oOut">7</output>/10
+          <input type="range" id="oRange" min="1" max="10" value="7"></label>
+        <button class="pill" type="submit">Submit report</button>
+      </form>
+    </div>
     <div class="card">
       <h2>Next 48 hours — temperature &amp; precipitation</h2>
       <div class="chartbox"><canvas id="hourlyChart"></canvas></div>
@@ -455,11 +486,91 @@ async function loadData() {
     if (!data.current) throw new Error("Unexpected data format");
     render(data);
     renderGolf(data, hist, soil);
+    loadReports();
   } catch (err) {
     $("errMsg").textContent = (err && err.message) || "Could not load weather data.";
     show("error");
   }
 }
+
+/* ---------- player reports ---------- */
+function ago(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 2) return "just now";
+  if (m < 60) return m + " min ago";
+  const h = Math.round(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.round(h / 24) + "d ago";
+}
+
+function renderReports(reports) {
+  const box = $("repList");
+  box.innerHTML = "";
+  if (!reports.length) {
+    const d = document.createElement("div");
+    d.className = "rep";
+    d.textContent = "No player reports nearby yet — play a round and be the first! ⛳";
+    box.appendChild(d);
+    return;
+  }
+  reports.slice(0, 10).forEach(r => {
+    const row = document.createElement("div");
+    row.className = "rep";
+    const name = document.createElement("b");
+    name.textContent = r.course;
+    const scores = document.createElement("span");
+    scores.className = "scores";
+    scores.textContent = "Greens " + r.g + "/10 · Fairways " + r.f + "/10 · Overall " + r.o + "/10";
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = ago(r.t);
+    row.append(name, scores, when);
+    box.appendChild(row);
+  });
+}
+
+async function loadReports() {
+  if (!loc) return;
+  try {
+    const r = await fetch("/api/reports?lat=" + loc.lat + "&lon=" + loc.lon);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    renderReports(d.reports || []);
+    $("repCard").classList.remove("hidden");
+  } catch (e) {
+    $("repCard").classList.add("hidden"); // API not available (e.g. opened as a local file)
+  }
+}
+
+$("rateBtn").addEventListener("click", () => {
+  $("repForm").classList.toggle("hidden");
+  const saved = localStorage.getItem("wxstation-course");
+  if (saved && !$("repCourse").value) $("repCourse").value = saved;
+});
+["g", "f", "o"].forEach(k => {
+  $(k + "Range").addEventListener("input", e => { $(k + "Out").textContent = e.target.value; });
+});
+$("repForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const course = $("repCourse").value.trim();
+  if (course.length < 2 || !loc) return;
+  try {
+    const r = await fetch("/api/reports", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        lat: loc.lat, lon: loc.lon, course,
+        greens: +$("gRange").value, fairways: +$("fRange").value, overall: +$("oRange").value
+      })
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || "Couldn't submit — try again."); return; }
+    localStorage.setItem("wxstation-course", course);
+    $("repForm").classList.add("hidden");
+    toast("Thanks! Your report helps other golfers ⛳");
+    loadReports();
+  } catch (err) { toast("Couldn't submit — check your connection."); }
+});
 
 function setLoc(l) {
   loc = l;
