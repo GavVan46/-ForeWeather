@@ -150,6 +150,10 @@
   .rep b { font-size: 13.5px; }
   .rep .scores { color: var(--muted); }
   .rep .when { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+  .repHead {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; font-weight: 650;
+    color: var(--muted); padding: 12px 2px 4px; border-bottom: 1px solid var(--border);
+  }
 </style>
 </head>
 <body>
@@ -506,30 +510,47 @@ function ago(t) {
   return Math.round(h / 24) + "d ago";
 }
 
+function repRow(r) {
+  const row = document.createElement("div");
+  row.className = "rep";
+  const name = document.createElement("b");
+  name.textContent = r.course;
+  const scores = document.createElement("span");
+  scores.className = "scores";
+  scores.textContent = "Greens " + r.g + "/10 · Fairways " + r.f + "/10 · Overall " + r.o + "/10";
+  const when = document.createElement("span");
+  when.className = "when";
+  when.textContent = ago(r.t);
+  row.append(name, scores, when);
+  return row;
+}
+
 function renderReports(reports) {
   const box = $("repList");
   box.innerHTML = "";
-  if (!reports.length) {
+  const courseName = (loc && loc.course ? loc.course : "").toLowerCase();
+  let mine = reports, others = [];
+  if (courseName) {
+    mine = reports.filter(r => r.course.toLowerCase() === courseName);
+    others = reports.filter(r => r.course.toLowerCase() !== courseName);
+  }
+  if (!mine.length) {
     const d = document.createElement("div");
     d.className = "rep";
-    d.textContent = "No player reports nearby yet — play a round and be the first! ⛳";
+    d.textContent = courseName
+      ? "No reports for " + loc.course + " yet — play a round and be the first! ⛳"
+      : "No player reports nearby yet — play a round and be the first! ⛳";
     box.appendChild(d);
-    return;
+  } else {
+    mine.slice(0, 10).forEach(r => box.appendChild(repRow(r)));
   }
-  reports.slice(0, 10).forEach(r => {
-    const row = document.createElement("div");
-    row.className = "rep";
-    const name = document.createElement("b");
-    name.textContent = r.course;
-    const scores = document.createElement("span");
-    scores.className = "scores";
-    scores.textContent = "Greens " + r.g + "/10 · Fairways " + r.f + "/10 · Overall " + r.o + "/10";
-    const when = document.createElement("span");
-    when.className = "when";
-    when.textContent = ago(r.t);
-    row.append(name, scores, when);
-    box.appendChild(row);
-  });
+  if (others.length) {
+    const h = document.createElement("div");
+    h.className = "repHead";
+    h.textContent = "Nearby courses";
+    box.appendChild(h);
+    others.slice(0, 6).forEach(r => box.appendChild(repRow(r)));
+  }
 }
 
 async function loadReports() {
@@ -631,7 +652,7 @@ $("repForm").addEventListener("submit", async e => {
       lat: loc.lat, lon: loc.lon, course,
       greens: +$("gRange").value, fairways: +$("fRange").value, overall: +$("oRange").value
     };
-    if (selCourse) { body.clat = selCourse.la; body.clon = selCourse.lo; body.course = selCourse.n; }
+    if (selCourse) { body.clat = selCourse.la; body.clon = selCourse.lo; body.course = selCourse.n.replace(/\s*\([^)]*\)$/, ""); }
     const r = await fetch("/api/reports", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -684,7 +705,8 @@ async function doSearch(q) {
       b.onclick = () => {
         box.style.display = "none";
         $("q").value = "";
-        setLoc({ name: c.n.replace(/\s*\([^)]*\)$/, ""), country: "", lat: c.la, lon: c.lo });
+        const plain = c.n.replace(/\s*\([^)]*\)$/, "");
+        setLoc({ name: plain, country: "", lat: c.la, lon: c.lo, course: plain });
       };
       box.appendChild(b);
     });
