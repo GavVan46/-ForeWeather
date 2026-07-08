@@ -1,5 +1,5 @@
 /* ForeWeather service worker: app shell cache-first, weather data network-first */
-const SHELL = "foreweather-shell-v1";
+const SHELL = "foreweather-shell-v2";
 const DATA = "foreweather-data-v1";
 const SHELL_ASSETS = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
@@ -28,6 +28,17 @@ self.addEventListener("fetch", e => {
     );
     return;
   }
-  // shell & assets: cache-first
+  if (e.request.mode === "navigate") {
+    // page loads: network-first so updates arrive immediately, cache as offline fallback
+    e.respondWith(
+      fetch(e.request).then(r => {
+        const copy = r.clone();
+        caches.open(SHELL).then(c => c.put(e.request, copy));
+        return r;
+      }).catch(() => caches.match(e.request).then(hit => hit || caches.match("/index.html")))
+    );
+    return;
+  }
+  // other assets: cache-first
   e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request)));
 });

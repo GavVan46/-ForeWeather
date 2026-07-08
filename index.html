@@ -127,6 +127,13 @@
   .state .big { font-size: 42px; margin-bottom: 10px; }
   .hidden { display: none !important; }
   .credit { text-align: center; font-size: 11px; color: var(--muted); padding-bottom: 6px; }
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(80px);
+    background: var(--ink); color: var(--bgbase); padding: 11px 18px; border-radius: 13px;
+    font-size: 13px; font-weight: 600; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    opacity: 0; transition: transform .25s, opacity .25s; z-index: 100; pointer-events: none;
+  }
+  #toast.on { transform: translateX(-50%); opacity: 1; }
 </style>
 </head>
 <body>
@@ -137,9 +144,11 @@
       <input id="q" type="text" placeholder="Search city… (e.g. Kempton Park)" autocomplete="off">
       <div class="results" id="results"></div>
     </div>
+    <div id="toast"></div>
     <button class="pill" id="geoBtn" title="Use my location">📍</button>
     <button class="pill" id="unitBtn" title="Toggle units">°C</button>
     <button class="pill" id="refreshBtn" title="Refresh data">↻</button>
+    <button class="pill" id="shareBtn" title="Share today's conditions">📤 Share</button>
   </div>
 
   <div id="empty" class="card state">
@@ -187,6 +196,7 @@
 "use strict";
 const LS_LOC = "wxstation-loc", LS_UNIT = "wxstation-unit";
 let loc = null, unit = "C", chart = null, lastData = null;
+let shareText = "How fast are the greens today? Live golf weather & course conditions:";
 try { loc = JSON.parse(localStorage.getItem(LS_LOC) || "null"); } catch (e) {}
 unit = localStorage.getItem(LS_UNIT) === "F" ? "F" : "C";
 
@@ -419,6 +429,11 @@ function renderGolf(data, hist, soil) {
   const lastOff = new Date(2000, 0, 1, +ssM[0], +ssM[1] - 260); // 4h20 round
   const lastOffStr = String(lastOff.getHours()).padStart(2, "0") + ":" + String(lastOff.getMinutes()).padStart(2, "0");
 
+  const c0 = data.current;
+  shareText = "⛳ " + loc.name + " right now: " + Math.round(cval(c0.temperature_2m)) + deg() +
+    ", greens ~" + gs.stimp + " (" + gs.label.toLowerCase() + "), " + firm.toLowerCase() +
+    (t1 ? ", best tee time " + t1.start : "") + ". Check your course:";
+
   $("golfTiles").innerHTML =
     tile("Green speed (est)", "~" + gs.stimp, gsNote) +
     tile("Course firmness", firm, firmNote) +
@@ -508,6 +523,29 @@ $("unitBtn").addEventListener("click", () => {
   if (lastData) render(lastData);
 });
 $("refreshBtn").addEventListener("click", loadData);
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("on"), 2600);
+}
+
+$("shareBtn").addEventListener("click", async () => {
+  const url = "https://fore-weather.com/";
+  if (navigator.share) {
+    try { await navigator.share({ title: "ForeWeather", text: shareText, url }); } catch (e) { /* user cancelled */ }
+  } else if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(shareText + " " + url);
+      toast("Copied! Paste it in your group chat 🏌️");
+    } catch (e) { toast("Couldn't copy — the link is fore-weather.com"); }
+  } else {
+    toast("Share fore-weather.com with your fourball!");
+  }
+});
 setInterval(() => { if (loc) loadData(); }, 10 * 60 * 1000);
 window.addEventListener("focus", () => { if (loc) loadData(); });
 
