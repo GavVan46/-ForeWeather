@@ -25,6 +25,7 @@ async function handleCourses(request, env) {
     "https://overpass.kumi.systems/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
   ];
+  const debug = [];
   for (const mirror of MIRRORS) {
     try {
       const r = await fetch(mirror, {
@@ -35,8 +36,10 @@ async function handleCourses(request, env) {
         },
         body: "data=" + encodeURIComponent(q)
       });
+      debug.push(mirror.split("/")[2] + ": HTTP " + r.status);
       if (!r.ok) continue; // rate-limited or down — try next mirror
       const d = await r.json();
+      debug.push("elements: " + ((d.elements || []).length));
       const seen = new Set();
       for (const el of d.elements || []) {
         const name = el.tags && el.tags.name;
@@ -52,9 +55,11 @@ async function handleCourses(request, env) {
       courses = courses.slice(0, 400);
       if (courses.length) await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 30 * 86400 });
       break; // this mirror answered — done
-    } catch (e) { /* try next mirror */ }
+    } catch (e) { debug.push(mirror.split("/")[2] + ": " + ((e && e.message) || "error")); }
   }
-  return json({ courses });
+  const out = { courses };
+  if (url.searchParams.get("debug")) out.debug = debug;
+  return json(out);
 }
 
 async function handleFindCourse(request, env) {
