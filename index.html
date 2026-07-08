@@ -157,7 +157,7 @@
   <div class="card topbar">
     <h1>⛳ ForeWeather</h1>
     <div class="searchbox">
-      <input id="q" type="text" placeholder="Search city… (e.g. Kempton Park)" autocomplete="off">
+      <input id="q" type="text" placeholder="Search city or golf course…" autocomplete="off">
       <div class="results" id="results"></div>
     </div>
     <div id="toast"></div>
@@ -657,18 +657,34 @@ async function doSearch(q) {
   box.style.display = "block";
   box.innerHTML = "<button disabled>Searching…</button>";
   try {
-    const g = await getJson(geocodeUrl(q));
-    const res = g.results || [];
-    if (!res.length) { box.innerHTML = "<button disabled>No matches found</button>"; return; }
+    const [g, cf] = await Promise.all([
+      getJson(geocodeUrl(q)).catch(() => ({})),
+      q.length >= 3
+        ? fetch("/api/findcourse?q=" + encodeURIComponent(q)).then(r => r.ok ? r.json() : { courses: [] }).catch(() => ({ courses: [] }))
+        : Promise.resolve({ courses: [] })
+    ]);
+    const cities = (g.results || []).slice(0, 5);
+    const courses = (cf.courses || []).slice(0, 4);
+    if (!cities.length && !courses.length) { box.innerHTML = "<button disabled>No matches found</button>"; return; }
     box.innerHTML = "";
-    res.forEach(r => {
+    cities.forEach(r => {
       const b = document.createElement("button");
       const sub = [r.admin1, r.country].filter(Boolean).join(", ");
-      b.textContent = r.name + (sub ? " — " + sub : "");
+      b.textContent = "📍 " + r.name + (sub ? " — " + sub : "");
       b.onclick = () => {
         box.style.display = "none";
         $("q").value = "";
         setLoc({ name: r.name, country: r.country_code || r.country, lat: +r.latitude.toFixed(4), lon: +r.longitude.toFixed(4) });
+      };
+      box.appendChild(b);
+    });
+    courses.forEach(c => {
+      const b = document.createElement("button");
+      b.textContent = "⛳ " + c.n;
+      b.onclick = () => {
+        box.style.display = "none";
+        $("q").value = "";
+        setLoc({ name: c.n.replace(/\s*\([^)]*\)$/, ""), country: "", lat: c.la, lon: c.lo });
       };
       box.appendChild(b);
     });
