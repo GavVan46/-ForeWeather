@@ -16,7 +16,7 @@ async function handleCourses(request, env) {
   const cla = Math.round(lat), clo = Math.round(lon);
   const key = "courses2:" + cla + "," + clo; // v2: 150 km radius
   const cached = await env.REPORTS.get(key, "json");
-  if (cached) return json({ courses: cached });
+  if (cached && cached.length) return json({ courses: cached }); // ignore stale empty caches
 
   let courses = [];
   const q = '[out:json][timeout:25];nwr["leisure"="golf_course"]["name"](around:150000,' + cla + "," + clo + ");out center tags 400;";
