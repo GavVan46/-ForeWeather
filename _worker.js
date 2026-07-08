@@ -19,17 +19,23 @@ async function handleCourses(request, env) {
   if (cached) return json({ courses: cached });
 
   let courses = [];
-  try {
-    const q = '[out:json][timeout:25];nwr["leisure"="golf_course"]["name"](around:150000,' + cla + "," + clo + ");out center tags 400;";
-    const r = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        "user-agent": "ForeWeather/1.0 (https://fore-weather.com)"
-      },
-      body: "data=" + encodeURIComponent(q)
-    });
-    if (r.ok) {
+  const q = '[out:json][timeout:25];nwr["leisure"="golf_course"]["name"](around:150000,' + cla + "," + clo + ");out center tags 400;";
+  const MIRRORS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+  ];
+  for (const mirror of MIRRORS) {
+    try {
+      const r = await fetch(mirror, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "user-agent": "ForeWeather/1.0 (https://fore-weather.com)"
+        },
+        body: "data=" + encodeURIComponent(q)
+      });
+      if (!r.ok) continue; // rate-limited or down — try next mirror
       const d = await r.json();
       const seen = new Set();
       for (const el of d.elements || []) {
@@ -44,9 +50,10 @@ async function handleCourses(request, env) {
       }
       courses.sort((a, b) => a.n.localeCompare(b.n));
       courses = courses.slice(0, 400);
-      await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 30 * 86400 });
-    }
-  } catch (e) { /* Overpass unavailable — return empty, don't cache */ }
+      if (courses.length) await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 30 * 86400 });
+      break; // this mirror answered — done
+    } catch (e) { /* try next mirror */ }
+  }
   return json({ courses });
 }
 
