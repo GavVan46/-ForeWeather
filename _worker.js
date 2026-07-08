@@ -14,7 +14,7 @@ async function handleCourses(request, env) {
   const lon = parseFloat(url.searchParams.get("lon"));
   if (!isFinite(lat) || !isFinite(lon)) return json({ error: "lat/lon required" }, 400);
   const cla = Math.round(lat), clo = Math.round(lon);
-  const key = "courses:" + cla + "," + clo;
+  const key = "courses2:" + cla + "," + clo; // v2: 150 km radius
   const cached = await env.REPORTS.get(key, "json");
   if (cached) return json({ courses: cached });
 
@@ -56,7 +56,7 @@ async function handleFindCourse(request, env) {
     new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
   const q = sanitizeCourse(url.searchParams.get("q"));
   if (q.length < 3) return json({ courses: [] });
-  const key = "cq:" + q.toLowerCase();
+  const key = "cq2:" + q.toLowerCase();
   const cached = await env.REPORTS.get(key, "json");
   if (cached) return json({ courses: cached });
 
@@ -78,7 +78,8 @@ async function handleFindCourse(request, env) {
         if (country) n = (n + " (" + country + ")").slice(0, 60);
         courses.push({ n, la: +la.toFixed(4), lo: +lo.toFixed(4) });
       }
-      await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 7 * 86400 });
+      // only cache hits — misses stay fresh so newly-mapped courses appear quickly
+      if (courses.length) await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 7 * 86400 });
     }
   } catch (e) { /* Nominatim unavailable */ }
   return json({ courses });
