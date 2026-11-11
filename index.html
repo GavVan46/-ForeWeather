@@ -127,6 +127,7 @@
   .state .big { font-size: 42px; margin-bottom: 10px; }
   .hidden { display: none !important; }
   .credit { text-align: center; font-size: 11px; color: var(--muted); padding-bottom: 6px; }
+  .credit a { color: var(--accent); text-decoration: none; }
   #toast {
     position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(80px);
     background: var(--ink); color: var(--bgbase); padding: 11px 18px; border-radius: 13px;
@@ -226,7 +227,7 @@
       <h2>8-day outlook</h2>
       <div class="week" id="week"></div>
     </div>
-    <div class="credit">Data: Open-Meteo.com · Refreshes on open, on focus, and every 10 min</div>
+    <div class="credit">Data: Open-Meteo.com · Refreshes on open, on focus, and every 10 min · <a href="/courses">Browse all courses</a></div>
   </div>
 </div>
 
@@ -780,6 +781,18 @@ $("shareBtn").addEventListener("click", async () => {
 });
 setInterval(() => { if (loc) loadData(); }, 10 * 60 * 1000);
 window.addEventListener("focus", () => { if (loc) loadData(); });
+
+/* deep link from course pages: /?n=Name&la=-26.1&lo=28.2 */
+(function () {
+  const qp = new URLSearchParams(location.search);
+  const n = (qp.get("n") || "").trim().slice(0, 60);
+  const la = parseFloat(qp.get("la")), lo = parseFloat(qp.get("lo"));
+  if (n.length >= 2 && isFinite(la) && isFinite(lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180) {
+    loc = { name: n, country: "", lat: +la.toFixed(4), lon: +lo.toFixed(4), course: n };
+    localStorage.setItem(LS_LOC, JSON.stringify(loc));
+    history.replaceState(null, "", "/");
+  }
+})();
 
 $("unitBtn").textContent = "°" + unit;
 loadData();
