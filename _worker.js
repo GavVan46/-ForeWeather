@@ -28,7 +28,8 @@ function stripCountry(n) { return String(n || "").replace(/\s*\([^)]*\)?$/, "");
 
 /* Nominatim matches can include streets, shops and disc-golf — only directory-list names that look like real golf courses */
 function looksLikeCourse(n) {
-  const s = String(n || "");
+  const s = String(n || "").trim();
+  if (s.split(/\s+/).length < 2) return false; // "Golf" alone is not a course
   if (!/\b(golf|country club|links)\b/i.test(s)) return false;
   if (/\bdisc\b/i.test(s)) return false;
   if (/\b(street|drive|lane|parkway|avenue|road|boulevard|blvd|homes)\b/i.test(s)) return false;
