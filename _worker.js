@@ -24,7 +24,16 @@ function withCustom(courses, cla, clo) {
   return out.sort((a, b) => a.n.localeCompare(b.n));
 }
 
-function stripCountry(n) { return String(n || "").replace(/\s*\([^)]*\)$/, ""); }
+function stripCountry(n) { return String(n || "").replace(/\s*\([^)]*\)?$/, ""); } // also drops unclosed "(Coun…" fragments
+
+/* Nominatim matches can include streets, shops and disc-golf — only directory-list names that look like real golf courses */
+function looksLikeCourse(n) {
+  const s = String(n || "");
+  if (!/\b(golf|country club|links)\b/i.test(s)) return false;
+  if (/\bdisc\b/i.test(s)) return false;
+  if (/\b(street|drive|lane|parkway|avenue|road|boulevard|blvd|homes)\b/i.test(s)) return false;
+  return true;
+}
 
 function slugify(s) {
   return stripCountry(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
@@ -89,22 +98,25 @@ async function listAll(env, prefix) {
 
 async function allKnownCourses(env) {
   const seen = new Map(); // slug -> {n, la, lo}
-  const add = c => {
+  const add = (c, strict) => {
     if (!c || c.la == null || c.lo == null) return;
     const n = sanitizeCourse(stripCountry(c.n));
     const s = slugify(n);
     if (n.length < 3 || s.length < 3) return;
+    if (strict && !looksLikeCourse(n)) return; // Nominatim-sourced names get quality-checked
     if (!seen.has(s)) seen.set(s, { n, la: c.la, lo: c.lo });
   };
-  CUSTOM_COURSES.forEach(add);
-  for (const prefix of ["courses2:", "cq2:"]) {
-    for (const key of await listAll(env, prefix)) {
-      const list = await env.REPORTS.get(key, "json");
-      if (Array.isArray(list)) list.forEach(add);
-    }
+  CUSTOM_COURSES.forEach(c => add(c, false));
+  for (const key of await listAll(env, "courses2:")) {
+    const list = await env.REPORTS.get(key, "json"); // OSM leisure=golf_course — trusted
+    if (Array.isArray(list)) list.forEach(c => add(c, false));
+  }
+  for (const key of await listAll(env, "cq2:")) {
+    const list = await env.REPORTS.get(key, "json");
+    if (Array.isArray(list)) list.forEach(c => add(c, true));
   }
   for (const key of await listAll(env, "page:")) {
-    add(await env.REPORTS.get(key, "json"));
+    add(await env.REPORTS.get(key, "json"), true);
   }
   return seen;
 }
@@ -124,7 +136,7 @@ async function resolveCourse(env, slug) {
         for (const it of d) {
           const la = parseFloat(it.lat), lo = parseFloat(it.lon);
           const n = sanitizeCourse(String(it.display_name || "").split(",")[0]);
-          if (!isFinite(la) || !isFinite(lo) || n.length < 3) continue;
+          if (!isFinite(la) || !isFinite(lo) || n.length < 3 || !looksLikeCourse(n)) continue;
           if (slugify(n) === slug || courseKey(n) === courseKey(q)) {
             course = { n, la: +la.toFixed(4), lo: +lo.toFixed(4) };
             break;
