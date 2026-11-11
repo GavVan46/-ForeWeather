@@ -131,7 +131,7 @@ async function resolveCourse(env, slug) {
     const q = slug.replace(/-/g, " ");
     try {
       const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&q=" + encodeURIComponent(q + " golf"),
-        { headers: { "user-agent": "ForeWeather/1.0 (https://fore-weather.com)", "accept-language": "en" } });
+        { headers: { "user-agent": "ForeWeather/1.0 (https://fore-weather.com)", "accept-language": "en" }, signal: AbortSignal.timeout(10000) });
       if (r.ok) {
         const d = await r.json();
         for (const it of d) {
@@ -304,7 +304,8 @@ async function handleCourses(request, env) {
           "content-type": "application/x-www-form-urlencoded",
           "user-agent": "ForeWeather/1.0 (https://fore-weather.com)"
         },
-        body: "data=" + encodeURIComponent(q)
+        body: "data=" + encodeURIComponent(q),
+        signal: AbortSignal.timeout(20000) // a hanging mirror gets skipped, not waited on
       });
       debug.push(mirror.split("/")[2] + ": HTTP " + r.status);
       if (!r.ok) continue; // rate-limited or down — try next mirror
@@ -345,7 +346,7 @@ async function handleFindCourse(request, env) {
   try {
     const r = await fetch(
       "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=" + encodeURIComponent(q + " golf"),
-      { headers: { "user-agent": "ForeWeather/1.0 (https://fore-weather.com)", "accept-language": "en" } }
+      { headers: { "user-agent": "ForeWeather/1.0 (https://fore-weather.com)", "accept-language": "en" }, signal: AbortSignal.timeout(10000) }
     );
     if (r.ok) {
       const d = await r.json();
