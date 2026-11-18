@@ -293,6 +293,7 @@ async function handleCourses(request, env) {
   const MIRRORS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
   ];
   const debug = [];
@@ -305,7 +306,7 @@ async function handleCourses(request, env) {
           "user-agent": "ForeWeather/1.0 (https://fore-weather.com)"
         },
         body: "data=" + encodeURIComponent(q),
-        signal: AbortSignal.timeout(20000) // a hanging mirror gets skipped, not waited on
+        signal: AbortSignal.timeout(15000) // a hanging mirror gets skipped, not waited on
       });
       debug.push(mirror.split("/")[2] + ": HTTP " + r.status);
       if (!r.ok) continue; // rate-limited or down — try next mirror

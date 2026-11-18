@@ -589,6 +589,34 @@ async function loadCourses() {
     courseList = d.courses || [];
     coursesLoadedFor = key;
   } catch (e) { /* offline — free typing still works */ }
+  // server path thin (OSM mirrors throttle datacenter IPs)? ask OpenStreetMap directly from this browser
+  if (courseList.length < 5) {
+    try {
+      const q = '[out:json][timeout:15];nwr["leisure"="golf_course"]["name"](around:150000,' +
+        Math.round(loc.lat) + "," + Math.round(loc.lon) + ");out center tags 400;";
+      const or = await fetch("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(q),
+        signal: AbortSignal.timeout(20000)
+      });
+      if (or.ok) {
+        const od = await or.json();
+        const seen = new Set(courseList.map(c => c.n.toLowerCase()));
+        for (const el of od.elements || []) {
+          const name = el.tags && el.tags.name;
+          const la = el.lat != null ? el.lat : el.center && el.center.lat;
+          const lo = el.lon != null ? el.lon : el.center && el.center.lon;
+          if (!name || la == null || lo == null) continue;
+          const n = String(name).replace(/\s+/g, " ").trim().slice(0, 60);
+          if (n.length < 2 || seen.has(n.toLowerCase())) continue;
+          seen.add(n.toLowerCase());
+          courseList.push({ n, la: +(+la).toFixed(4), lo: +(+lo).toFixed(4) });
+        }
+        courseList.sort((a, b) => a.n.localeCompare(b.n));
+      }
+    } catch (e) { /* typed search still works */ }
+  }
 }
 
 function renderDrop(hits) {
