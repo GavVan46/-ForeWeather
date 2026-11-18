@@ -140,9 +140,9 @@
     font-size: 14px; font-family: inherit; background: var(--input); color: var(--ink); outline: none;
   }
   #repCourse:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .rating { font-size: 13px; font-weight: 650; display: grid; gap: 4px; }
+  .rating { font-size: 13px; font-weight: 650; display: block; }
   .rating output { display: inline; font-weight: 800; color: var(--accent); }
-  .rating input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .rating input[type="range"] { display: block; width: 100%; margin-top: 6px; accent-color: var(--accent); }
   .rep {
     display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline;
     padding: 9px 2px; border-bottom: 1px solid var(--border); font-size: 13px;
@@ -678,8 +678,14 @@ document.addEventListener("click", e => {
 $("rateBtn").addEventListener("click", () => {
   $("repForm").classList.toggle("hidden");
   loadCourses();
-  const saved = localStorage.getItem("wxstation-course");
-  if (saved && !$("repCourse").value) $("repCourse").value = saved;
+  if (loc && loc.course) {
+    // viewing a course? rate that course, pinned to its location
+    $("repCourse").value = loc.course;
+    selCourse = { n: loc.course, la: loc.lat, lo: loc.lon };
+  } else {
+    const saved = localStorage.getItem("wxstation-course");
+    if (saved && !$("repCourse").value) $("repCourse").value = saved;
+  }
 });
 ["g", "f", "o"].forEach(k => {
   $(k + "Range").addEventListener("input", e => { $(k + "Out").textContent = e.target.value; });
