@@ -167,6 +167,53 @@ function ago(t) {
   return Math.round(h / 24) + "d ago";
 }
 
+/* ---------- today's conditions, server-rendered for search engines ---------- */
+
+const WMO_TXT = {
+  0: "clear skies", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "fog",
+  51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain",
+  71: "light snow", 73: "snow", 75: "heavy snow", 80: "light showers", 81: "showers", 82: "heavy showers",
+  95: "thunderstorms", 96: "thunderstorms with hail", 99: "thunderstorms with hail"
+};
+const COMPASS = d => ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((d % 360) + 360) % 360 / 45) % 8];
+
+function greensFromSoil(sm) {
+  if (sm == null || !isFinite(sm)) return null;
+  if (sm < 0.12) return "11.0 (fast)";
+  if (sm < 0.20) return "10.4 (fast)";
+  if (sm < 0.26) return "9.8 (medium-fast)";
+  if (sm < 0.32) return "9.0 (medium)";
+  if (sm < 0.38) return "8.3 (slow)";
+  return "7.6 (slow)";
+}
+
+async function conditionsHtml(name, la, lo) {
+  try {
+    const u = "https://api.open-meteo.com/v1/forecast?latitude=" + la + "&longitude=" + lo +
+      "&current=temperature_2m,wind_speed_10m,wind_direction_10m,weather_code" +
+      "&hourly=soil_moisture_0_to_1cm&forecast_hours=1" +
+      "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&forecast_days=1&timezone=auto";
+    const r = await fetch(u, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return "";
+    const d = await r.json();
+    const c = d.current || {}, dl = d.daily || {};
+    if (c.temperature_2m == null) return "";
+    const sky = WMO_TXT[c.weather_code] || "mixed conditions";
+    const sm = d.hourly && d.hourly.soil_moisture_0_to_1cm ? d.hourly.soil_moisture_0_to_1cm[0] : null;
+    const greens = greensFromSoil(sm);
+    const date = String(c.time || "").slice(0, 10);
+    let txt = "Conditions at <strong>" + esc(name) + "</strong>" + (date ? " on " + esc(date) : "") + ": " +
+      Math.round(c.temperature_2m) + "°C and " + sky + ", wind " + Math.round(c.wind_speed_10m) + " km/h from the " +
+      COMPASS(c.wind_direction_10m) + ".";
+    if (dl.temperature_2m_max) txt += " Today's high " + Math.round(dl.temperature_2m_max[0]) + "°C, low " + Math.round(dl.temperature_2m_min[0]) + "°C";
+    if (dl.precipitation_probability_max && dl.precipitation_probability_max[0] != null) txt += ", " + dl.precipitation_probability_max[0] + "% chance of rain";
+    txt += ".";
+    if (greens) txt += " Estimated green speed: ~" + greens + " on the stimpmeter scale, from modelled topsoil moisture.";
+    if (dl.sunrise) txt += " Sunrise " + String(dl.sunrise[0]).slice(11, 16) + ", sunset " + String(dl.sunset[0]).slice(11, 16) + ".";
+    return "<div class='card'><h2>Today's conditions</h2><p>" + txt + "</p></div>";
+  } catch (e) { return ""; }
+}
+
 /* ---------- SEO pages ---------- */
 
 async function handleCoursePage(request, env) {
@@ -182,7 +229,10 @@ async function handleCoursePage(request, env) {
       { noindex: true, status: 404 });
   }
   const name = course.n;
-  const all = await reportsNear(env, course.la, course.lo);
+  const [all, today] = await Promise.all([
+    reportsNear(env, course.la, course.lo),
+    conditionsHtml(name, course.la, course.lo)
+  ]);
   const mine = all.filter(r => courseKey(r.course) === courseKey(name)).slice(0, 10);
   const appLink = "/?n=" + encodeURIComponent(name) + "&la=" + course.la + "&lo=" + course.lo;
   const repHtml = mine.length
@@ -199,6 +249,7 @@ async function handleCoursePage(request, env) {
     "<p>Live golf weather for <strong>" + esc(name) + "</strong>: current conditions, a soil-moisture-driven green speed estimate, " +
     "course firmness, wind club adjustment, the best tee times today and tomorrow, an 8-day outlook — and real course reports from players who have just walked the fairways.</p>" +
     "<a class='cta' href='" + esc(appLink) + "'>Open live conditions for " + esc(name) + " →</a>" +
+    today +
     "<div class='card'><h2>Recent player reports</h2>" + repHtml + "</div>" +
     "<div class='card'><h2>About these conditions</h2>" +
     "<p>ForeWeather estimates green speed and firmness at " + esc(name) + " from the weather model's land-surface simulation — " +
@@ -334,6 +385,43 @@ async function handleCourses(request, env) {
   return json(out);
 }
 
+/* Browsers that fetched courses straight from OpenStreetMap share the list back here,
+   so the directory and sitemap grow even when OSM mirrors block Cloudflare's servers. */
+async function handleCoursesSave(request, env) {
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+  let b;
+  try { b = await request.json(); } catch (e) { return json({ error: "bad json" }, 400); }
+  const lat = parseFloat(b.lat), lon = parseFloat(b.lon);
+  if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: "bad location" }, 400);
+  const cla = Math.round(lat), clo = Math.round(lon);
+  const key = "courses2:" + cla + "," + clo;
+  const existing = await env.REPORTS.get(key, "json");
+  if (existing && existing.length) return json({ ok: true, skipped: "already cached" });
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const rl = "rls:" + ip;
+  if (await env.REPORTS.get(rl)) return json({ error: "too many requests" }, 429);
+  await env.REPORTS.put(rl, "1", { expirationTtl: 60 });
+
+  const seen = new Set();
+  const courses = [];
+  for (const c of Array.isArray(b.courses) ? b.courses.slice(0, 400) : []) {
+    const n = sanitizeCourse(c && c.n);
+    const la = parseFloat(c && c.la), lo = parseFloat(c && c.lo);
+    if (n.length < 2 || !isFinite(la) || !isFinite(lo)) continue;
+    const dLat = (la - cla) * 110.6, dLon = (lo - clo) * 111.3 * Math.cos(cla * Math.PI / 180);
+    if (Math.sqrt(dLat * dLat + dLon * dLon) > 200) continue; // must actually be near this area
+    if (CUSTOM_COURSES.some(x => x.n.toLowerCase() === n.toLowerCase())) continue; // custom list is merged separately
+    if (seen.has(n.toLowerCase())) continue;
+    seen.add(n.toLowerCase());
+    courses.push({ n, la: +la.toFixed(4), lo: +lo.toFixed(4) });
+  }
+  if (courses.length < 3) return json({ ok: true, skipped: "too few" });
+  courses.sort((a, b) => a.n.localeCompare(b.n));
+  await env.REPORTS.put(key, JSON.stringify(courses), { expirationTtl: 30 * 86400 });
+  return json({ ok: true, saved: courses.length });
+}
+
 async function handleFindCourse(request, env) {
   const url = new URL(request.url);
   const q = sanitizeCourse(url.searchParams.get("q"));
@@ -430,6 +518,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/api/reports") return handleReports(request, env);
     if (url.pathname === "/api/courses") return handleCourses(request, env);
+    if (url.pathname === "/api/courses/save") return handleCoursesSave(request, env);
     if (url.pathname === "/api/findcourse") return handleFindCourse(request, env);
     if (url.pathname === "/sitemap.xml") return handleSitemap(request, env);
     if (url.pathname === "/courses") return handleCoursesIndex(request, env);

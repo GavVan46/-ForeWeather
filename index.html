@@ -614,6 +614,14 @@ async function loadCourses() {
           courseList.push({ n, la: +(+la).toFixed(4), lo: +(+lo).toFixed(4) });
         }
         courseList.sort((a, b) => a.n.localeCompare(b.n));
+        // share the list back so the course directory and sitemap grow for everyone
+        if (courseList.length >= 5) {
+          fetch("/api/courses/save", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ lat: loc.lat, lon: loc.lon, courses: courseList })
+          }).catch(() => {});
+        }
       }
     } catch (e) { /* typed search still works */ }
   }
